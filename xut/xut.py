@@ -368,24 +368,18 @@ class XUDiT(nn.Module):
                 nn.Mish(),
                 nn.Linear(dim * 4, dim * 3),
             )
-            nn.init.constant_(self.shared_adaln_attn[-1].bias, 0)
-            nn.init.constant_(self.shared_adaln_attn[-1].weight, 0)
             self.shared_adaln_xattn = nn.Sequential(
                 nn.LayerNorm(dim),
                 nn.Linear(dim, dim * 4),
                 nn.Mish(),
                 nn.Linear(dim * 4, dim * 3),
             )
-            nn.init.constant_(self.shared_adaln_xattn[-1].bias, 0)
-            nn.init.constant_(self.shared_adaln_xattn[-1].weight, 0)
             self.shared_adaln_ffw = nn.Sequential(
                 nn.LayerNorm(dim),
                 nn.Linear(dim, dim * 4),
                 nn.Mish(),
                 nn.Linear(dim * 4, dim * 3),
             )
-            nn.init.constant_(self.shared_adaln_ffw[-1].bias, 0)
-            nn.init.constant_(self.shared_adaln_ffw[-1].weight, 0)
         if class_cond > 0:
             self.class_token = nn.Embedding(class_cond, dim)
         else:
@@ -398,8 +392,6 @@ class XUDiT(nn.Module):
             self.addon_info_embs_proj = nn.Sequential(
                 nn.Linear(addon_info_embs_dim, dim), nn.Mish(), nn.Linear(dim, dim)
             )
-            nn.init.constant_(self.addon_info_embs_proj[-1].bias, 0)
-            nn.init.constant_(self.addon_info_embs_proj[-1].weight, 0)
 
         if pixel_model_config is not None:
             self.use_pixel_mode = True
@@ -417,15 +409,6 @@ class XUDiT(nn.Module):
         self.ctx_dim = ctx_dim
         self.ctx_size = ctx_size
         self.grad_ckpt = False
-        self.init_weight()
-
-    def init_weight(self):
-        if isinstance(self.out_patch.proj, nn.Linear):
-            nn.init.normal_(
-                self.out_patch.proj.weight,
-                mean=0.0,
-                std=1 / self.out_patch.proj.in_features,
-            )
 
     def set_grad_ckpt(self, grad_ckpt):
         self.backbone.grad_ckpt = grad_ckpt

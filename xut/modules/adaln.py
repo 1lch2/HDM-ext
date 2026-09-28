@@ -12,8 +12,6 @@ class AdaLN(nn.Module):
             self.adaln = None
         else:
             self.adaln = nn.Linear(y_dim, dim * (2 + bool(gate)))
-            nn.init.constant_(self.adaln.bias, 0)
-            nn.init.constant_(self.adaln.weight, 0)
 
     def forward(self, x, y, shared_adaln=None):
         if shared_adaln is None:

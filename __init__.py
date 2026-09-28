@@ -23,7 +23,11 @@ env.USE_XFORMERS = False
 env.USE_XFORMERS_LAYERS = True
 from .xut.xut import XUDiT
 from .xut.modules.axial_rope import make_axial_pos_no_cache
-from transformers import Qwen3Model, Qwen2Tokenizer
+from transformers import Qwen3Config, Qwen3Model, Qwen2Tokenizer
+try:
+    from transformers.initialization import no_init_weights
+except ImportError:
+    from transformers.modeling_utils import no_init_weights
 
 # Comfy
 import folder_paths
@@ -46,14 +50,16 @@ def operation_patch(operations):
     Not recommended but easiest
     """
     module_list = set(i for i in dir(torch.nn) if not i.startswith("_"))
-    for op in dir(operations):
-        if op in module_list:
-            setattr(torch.nn, f"org_{op}", getattr(torch.nn, op))
-            setattr(torch.nn, op, getattr(operations, op))
-    yield
-    for op in dir(operations):
-        if op in module_list:
-            setattr(torch.nn, op, getattr(torch.nn, f"org_{op}"))
+    original_ops = {}
+    try:
+        for op in dir(operations):
+            if op in module_list:
+                original_ops[op] = getattr(torch.nn, op)
+                setattr(torch.nn, op, getattr(operations, op))
+        yield
+    finally:
+        for op, original in original_ops.items():
+            setattr(torch.nn, op, original)
 
 
 class EQVAE(latent_formats.LatentFormat):
@@ -150,13 +156,33 @@ def Qwen3_600M(config, dtype, device, operations):
     num_layers is needed in ComfyUI's Node
     """
     with torch.inference_mode(False), operation_patch(operations):
-        model = (
-            Qwen3_600M_Wrapper.from_pretrained(
+        local_path = config.get("local_model_path")
+        if local_path:
+            qwen_config = Qwen3Config(
+                vocab_size=151936,
+                hidden_size=1024,
+                intermediate_size=3072,
+                num_hidden_layers=28,
+                num_attention_heads=16,
+                num_key_value_heads=8,
+                head_dim=128,
+                max_position_embeddings=40960,
+                rms_norm_eps=1e-6,
+                rope_theta=1000000,
+                tie_word_embeddings=True,
+                use_cache=False,
+            )
+            qwen_config._attn_implementation = "sdpa"
+            with no_init_weights():
+                model = Qwen3_600M_Wrapper(qwen_config)
+            state_dict = comfy.utils.load_torch_file(local_path)
+            state_dict = {k.removeprefix("model."): v for k, v in state_dict.items()}
+            model.load_state_dict(state_dict, strict=True, assign=True)
+        else:
+            model = Qwen3_600M_Wrapper.from_pretrained(
                 "Qwen/Qwen3-0.6B", torch_dtype=dtype, attn_implementation="sdpa"
             )
-            .to(device)
-            .to(dtype)
-        )
+        model = model.to(device).to(dtype)
         model = model.to(device).eval().requires_grad_(False)
         model.num_layers = model.config.num_hidden_layers
     return model
@@ -430,7 +456,7 @@ def load_state_dict_hdm(
     model_config = HomeDiffusionSmall({})
 
     unet_weight_dtype = list(model_config.supported_inference_dtypes)
-    if model_config.scaled_fp8 is not None:
+    if model_config.quant_config is not None:
         weight_dtype = None
 
     model_config.custom_operations = model_options.get("custom_operations", None)
@@ -527,13 +553,21 @@ def load_checkpoint_hdm(
 class HDMCheckpointLoader:
     @classmethod
     def INPUT_TYPES(s):
+        text_encoders = folder_paths.get_filename_list("text_encoders")
+        default_encoder = "qwen_3_06b_base.safetensors"
         return {
             "required": {
                 "ckpt_name": (
                     folder_paths.get_filename_list("checkpoints"),
                     {"tooltip": "The name of the checkpoint (model) to load."},
                 ),
-            }
+            },
+            "optional": {
+                "text_encoder_name": (
+                    ["(Hugging Face)"] + text_encoders,
+                    {"default": default_encoder if default_encoder in text_encoders else "(Hugging Face)"},
+                ),
+            },
         }
 
     RETURN_TYPES = ("MODEL", "CLIP", "VAE")
@@ -547,11 +581,19 @@ class HDMCheckpointLoader:
     CATEGORY = "loaders"
     DESCRIPTION = "Loads a HDM model checkpoint."
 
-    def load_checkpoint(self, ckpt_name):
+    def load_checkpoint(self, ckpt_name, text_encoder_name="(Hugging Face)"):
         ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
+        te_model_options = {}
+        if text_encoder_name != "(Hugging Face)":
+            te_model_options["qwen3_600m_model_config"] = {
+                "local_model_path": folder_paths.get_full_path_or_raise(
+                    "text_encoders", text_encoder_name
+                ),
+            }
         return load_checkpoint_hdm(
             ckpt_path,
             embedding_directory=folder_paths.get_folder_paths("embeddings"),
+            te_model_options=te_model_options,
         )
 
 

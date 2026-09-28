@@ -12,6 +12,12 @@
 
 
 ## A note on "Custom Model Loader"
+The HDM Loader's optional `text_encoder_name` selects a local Qwen3-0.6B
+Safetensors file from `ComfyUI/models/text_encoders`. This uses the local weights
+without downloading from Hugging Face. Both bare Qwen3Model keys and keys with a
+`model.` prefix are supported; weights must match the Qwen3-0.6B base model.
+Selecting `(Hugging Face)` keeps the original cached/downloaded model behavior.
+
 This repository is not only the loader for HDM model, it is also an example on "Making model loader for custom model while support ComfyUI's builtin nodes" (As you can see, in our example, only the Loader and a "HDM Camera" node are custom, other node are standard built-in nodes.)
 
 [WIP]
